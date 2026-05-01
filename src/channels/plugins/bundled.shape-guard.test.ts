@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PluginJitiLoaderFactory } from "../../plugins/jiti-loader-cache.js";
 import { loadPluginManifestRegistry } from "../../plugins/manifest-registry.js";
 
 vi.mock("../../plugins/bundled-dir.js", async (importOriginal) => {
@@ -101,6 +102,7 @@ afterEach(() => {
   vi.doUnmock("../../plugins/manifest-registry.js");
   vi.doUnmock("../../plugins/channel-catalog-registry.js");
   vi.doUnmock("../../infra/boundary-file-read.js");
+  vi.doUnmock("../../plugins/native-module-require.js");
   vi.doUnmock("jiti");
 });
 
@@ -1083,34 +1085,37 @@ describe("bundled channel entry shape guards", () => {
     }));
 
     let reentered = false;
-    vi.doMock("jiti", () => ({
-      createJiti: () => {
-        return () => {
-          if (!reentered) {
-            reentered = true;
-            expect(bundled.listBundledChannelPlugins()).toEqual([]);
-          }
-          return {
-            default: {
-              kind: "bundled-channel-entry",
-              id: "alpha",
-              name: "Alpha",
-              description: "Alpha",
-              configSchema: {},
-              register() {},
-              loadChannelPlugin() {
-                return {
-                  id: "alpha",
-                  meta: {},
-                  capabilities: {},
-                  config: {},
-                };
-              },
+    const {
+      resetChannelPluginModuleLoaderStateForTest,
+      setChannelPluginModuleLoaderJitiFactoryForTest,
+    } = await import("./module-loader.js");
+    resetChannelPluginModuleLoaderStateForTest();
+    const createTestLoader: PluginJitiLoaderFactory = () =>
+      (() => {
+        if (!reentered) {
+          reentered = true;
+          expect(bundled.listBundledChannelPlugins()).toEqual([]);
+        }
+        return {
+          default: {
+            kind: "bundled-channel-entry",
+            id: "alpha",
+            name: "Alpha",
+            description: "Alpha",
+            configSchema: {},
+            register() {},
+            loadChannelPlugin() {
+              return {
+                id: "alpha",
+                meta: {},
+                capabilities: {},
+                config: {},
+              };
             },
-          };
+          },
         };
-      },
-    }));
+      }) as unknown as ReturnType<PluginJitiLoaderFactory>;
+    setChannelPluginModuleLoaderJitiFactoryForTest(createTestLoader);
 
     const bundled = await importFreshModule<typeof import("./bundled.js")>(
       import.meta.url,
